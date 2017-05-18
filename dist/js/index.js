@@ -19,14 +19,13 @@ body.append("h2")
 body.append("button")
     .text("Sort By Increasing Terpenes")
     .on('click', function() {
-        if( aster.pieSortFunc() === null ){
+        if( d3.select(this).node().innerHTML === "Sort By Increasing Terpenes" ){
             // example of how to set a sort function example, sort by height ascending
             aster.pieSortFunc(function(a, b)
             {
                 return +a.height_var > +b.height_var;
             });
             d3.select(this).text("Don't Sort Terpenes");
-            
         }
         else
         {
@@ -38,21 +37,19 @@ body.append("button")
             .call(aster);
     });
 
-var showingShortLabel = true;
 body.append("button")
     .text("Label By Feeling")
     .on('click', function() {
-        if( showingShortLabel === true )
+        if( d3.select(this).node().innerHTML === "Label by Terpene" )
         {
             aster.arcLabelsTextFunc(function(d){ return d.data.label_arc_short; });
             d3.select(this).text("Label by Feeling");
         }
         else
         {
-            aster.arcLabelsTextFunc(function(d){ return d.data.label_arc_long; });
+            aster.arcLabelsTextFunc(function(d){ return d.data.label_legend; });
             d3.select(this).text("Label by Terpene");
         }
-        showingShortLabel = !showingShortLabel;
         d3.select("#aster-div")
             .datum(lastSelectedData)
             .call(aster);
