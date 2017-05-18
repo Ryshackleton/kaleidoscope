@@ -289,7 +289,7 @@ d3.aster = function(options) {
                 }
                 textPath
                     .attr("xlink:href", "#labelArc_" + d.data.id )
-                    .text( d.data.label_arc_long )
+                    .text( d.data.label_arc_short )
                 ;
             })
         ;
