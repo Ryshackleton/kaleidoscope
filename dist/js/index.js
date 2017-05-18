@@ -38,6 +38,26 @@ body.append("button")
             .call(aster);
     });
 
+var showingShortLabel = true;
+body.append("button")
+    .text("Label By Feeling")
+    .on('click', function() {
+        if( showingShortLabel === true )
+        {
+            aster.arcLabelsTextFunc(function(d){ return d.data.label_arc_short; });
+            d3.select(this).text("Label by Feeling");
+        }
+        else
+        {
+            aster.arcLabelsTextFunc(function(d){ return d.data.label_arc_long; });
+            d3.select(this).text("Label by Terpene");
+        }
+        showingShortLabel = !showingShortLabel;
+        d3.select("#aster-div")
+            .datum(lastSelectedData)
+            .call(aster);
+    });
+
 body.append("div")
     .attr("id","aster-div");
 

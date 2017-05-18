@@ -28,6 +28,7 @@ d3.aster = function(options) {
                 return Math.min(this.width - this.margin.left - this.margin.right,
                                 this.height - this.margin.top - this.margin.bottom) / 2;
             },
+            arcLabelsTextFunc: function(d){ return d.data.label_arc_short; },
             // brightens arc labels - create functions to modify label fill
             arcLabelsTextFillFunc: function(d) {
                 var sliceData = d.data; // access to data for each slice
@@ -330,7 +331,7 @@ d3.aster = function(options) {
                 }
                 textPath
                     .attr("xlink:href", "#labelArc_" + d.data.id )
-                    .text( d.data.label_arc_short )
+                    .text(self.options.arcLabelsTextFunc)
                 ;
             })
         ;
@@ -550,6 +551,14 @@ d3.aster = function(options) {
         return my;
     };
     
+    my.arcLabelsTextFunc = function(d) {
+        if( arguments.length === 0 )
+            return self.options.arcLabelsTextFunc;
+        if( typeof d !== "function" )
+            throw new Error("Argument 'arcLabelsTextFunc' must be a function");
+        self.options.arcLabelsTextFunc = d;
+        return my;
+    };
     my.arcLabelsTextFillFunc = function(d) {
         if( arguments.length === 0 )
             return self.options.arcLabelsTextFillFunc;
