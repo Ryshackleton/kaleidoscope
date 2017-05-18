@@ -101,6 +101,8 @@ d3.csv('dist/data/cannabis_data.csv', function(error, data)
             .attr("id","brand_id_"+i)
             .text(d)
             .on("mouseover", function(){
+                d3.selectAll(".cannabis-labels-text")
+                    .style("font-weight", "normal");
                 
                 lastSelectedData = brandData[d];
                 
@@ -116,8 +118,9 @@ d3.csv('dist/data/cannabis_data.csv', function(error, data)
             })
             .on("mouseout", function()
             {
-                d3.select("#brand_id_" + i)
-                    .style("font-weight", "normal")
+                // could un-bold on mouseout...
+                // d3.select("#brand_id_" + i)
+                //     .style("font-weight", "normal")
             });
     });
 });
