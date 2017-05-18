@@ -66,7 +66,6 @@ d3.aster = function(options) {
     // d3 constructs
     var heightScale = d3.scaleLinear(),
         pie = d3.pie()
-                .sort(self.options.pieSortFunc)
                 .value(function(d)
                 {
                     return d.width_var;

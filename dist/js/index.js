@@ -79,7 +79,13 @@ d3.csv('dist/data/cannabis_data.csv', function(error, data)
 {
     // group the data and add a unique ID to each value
     var id = 0;
-    brandData = Object.values(data).reduce(function(grouped,d) {
+    // deal with ancient browsers
+    var allVals = Object.keys(data).map(function(key) {
+        return data[key];
+    });
+    
+    // sort data by brand
+    brandData = allVals.reduce(function(grouped,d) {
         if( d.brand !== undefined )
         {
             if( d.id === undefined)
