@@ -4,51 +4,104 @@
  *  with updates to be d3 v4 compatible
  */
 
+var aster = new d3.aster({width: 500, height: 500, showOuterArc: false, transitionMethod: "sweepSlice"});
+aster.innerRadius(10);
+var lastSelectedData = null;
+
 var body = d3.select("body");
 
 body.append("h1")
     .text("Kaleidoscope Cannabis Logo/Terpene Pie Mockup");
 
 body.append("h2")
-    .text("Mouseover pie slices to see info (can add labels later)");
+    .text("Mouseover the name of a brand to see the terpene content");
 
-body.append("h2")
-    .text("Click anywhere in the view to toggle random terpene values and transitions");
+body.append("button")
+    .text("Sort By Increasing Terpenes")
+    .on('click', function() {
+        if( aster.pieSortFunc() === null ){
+            // example of how to set a sort function example, sort by height ascending
+            aster.pieSortFunc(function(a, b)
+            {
+                return +a.height_var > +b.height_var;
+            });
+            d3.select(this).text("Don't Sort Terpenes");
+            
+        }
+        else
+        {
+            aster.pieSortFunc(null);
+            d3.select(this).text("Sort By Increasing Terpenes");
+        }
+        d3.select("#aster-div")
+            .datum(lastSelectedData)
+            .call(aster);
+    });
 
-var aster = new d3.aster({width: 500, height: 500, showOuterArc: false, transitionMethod: "sweepSlice"});
-aster.innerRadius(0);
+body.append("div")
+    .attr("id","aster-div");
 
-var theData;
+body.append("div")
+    .attr("id","brand-labels-div");
+
+// load the logo
 d3.csv('dist/data/kaleidoscope_logo_data.csv', function(error, data)
-//  d3.csv('dist/data/example_data_width_var.csv', function(error, data)
 {
-    theData = data;
+    lastSelectedData = data;
     // add a unique id to the data if it doesn't exist
     var id = 0;
-    theData.forEach(function(d) { if(d.id === undefined) d.id = id++; });
-    renderAster();
+    data.forEach(function(d) { if(d.id === undefined) d.id = id++; });
+    d3.select("#aster-div")
+        .datum(data)
+        .call(aster);
 });
 
-body.on('click',toggleRandomValues);
-
-function toggleRandomValues()
+// set up brand labels and mouseover to trigger their terpene asters
+var brandData = {};
+d3.csv('dist/data/cannabis_data.csv', function(error, data)
 {
-    aster.showWidthLabels(true);
-    aster.showHeightLabels(true);
-    var transitions = aster.transitionMethodsArray();
-    var randomInt = Math.floor(Math.random() * (transitions.length));
-    aster.transitionMethod(transitions[randomInt]);
-    theData.forEach(function(d)
-                    {
-                        d.height_var = Math.random() * 100;
-                        // d.width_var = Math.random() * 100;
-                    });
-    renderAster();
-}
+    // group the data and add a unique ID to each value
+    var id = 0;
+    brandData = Object.values(data).reduce(function(grouped,d) {
+        if( d.brand !== undefined )
+        {
+            if( d.id === undefined)
+                d.id = "sliceID_"+id++;
+            if( grouped[d.brand] === undefined )
+                grouped[d.brand] = [];
+            grouped[d.brand].push(d);
+        }
+        return grouped;
+    }, {} );
 
-function renderAster() {
-    d3.select("body")
-        .datum(theData)
-        .call(aster);
-}
+    brandDiv = d3.select("#brand-labels-div");
+    Object.keys(brandData).forEach(function(d,i)
+    {
+        brandDiv
+            .append("h3")
+            .attr("class","cannabis-labels-text")
+            .style("font-weight","normal")
+            .attr("id","brand_id_"+i)
+            .text(d)
+            .on("mouseover", function(){
+                
+                lastSelectedData = brandData[d];
+                
+                d3.select("#brand_id_"+i)
+                    .style("font-weight","bold");
+
+                aster.showWidthLabels(true);
+                aster.showHeightLabels(true);
+                aster.setRandomTransition("sweepSlice");
+                d3.select("#aster-div")
+                    .datum(brandData[d])
+                    .call(aster);
+            })
+            .on("mouseout", function()
+            {
+                d3.select("#brand_id_" + i)
+                    .style("font-weight", "normal")
+            });
+    });
+});
 

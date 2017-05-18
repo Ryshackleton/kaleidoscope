@@ -5,15 +5,13 @@
  */
 var d3 = d3 || {};
 d3.aster = function(options) {
-    // Default options. Pass to constructor to modify, or use methods below to change
+    // Default user-settable options. Pass to constructor to modify, or use methods below to change
     var defaultOptions =
         {
+            // static options
             margin: { top: 10, left: 10, right: 10, bottom: 10 },
             width: 500,
             height: 500,
-            radius: function(){
-                return Math.min(this.width - this.margin.left - this.margin.right,
-                                this.height - this.margin.top - this.margin.bottom) / 2; },
             innerRadius: 0,
             showOuterArc: false, // shows an outline of the pie slices and the outer arc
             showWidthLabels: false,
@@ -22,17 +20,52 @@ d3.aster = function(options) {
             transitionMethod: "changeLengthSlice",
             // changes animation speed and delay
             transitionDuration: 50,
-            transitionDelay: 200
+            transitionDelay: 200,
+            
+            // functions for modifying display of aster plot (labels, tooltips, etc)
+            // --> set these functions using my.radiusFunc(functionYouHaveDefined); <--
+            radiusFunc: function(){
+                return Math.min(this.width - this.margin.left - this.margin.right,
+                                this.height - this.margin.top - this.margin.bottom) / 2;
+            },
+            // brightens arc labels - create functions to modify label fill
+            arcLabelsTextFillFunc: function(d) {
+                var sliceData = d.data; // access to data for each slice
+                return d3.color(sliceData.color).brighter(0.6).toString();
+            },
+            heightDataLabelsFunc: function(d) {
+                var sliceData = d.data; // access to data for each slice
+                var str = (+sliceData.height_var).toFixed(0); // trim off decimals
+                if( sliceData.label_height_unit !== undefined ) // if there is a unit label, append it
+                    str += sliceData.label_height_unit;
+                return  str;
+            },
+            // darkens height data labels - create functions to modify label fill
+            heightDataLabelsFillFunc: function(d) {
+                var sliceData = d.data; // access to data for each slice
+                return d3.color(sliceData.color).darker(0.9).toString();
+            },
+            // modify to return some hmtl based on the passed in data to change the tooltip
+            toolTipHTMLFunc: function(d)
+            {
+                var sliceData = d.data;
+                return "<span style='color:"+sliceData.color+"'>"
+                    +sliceData.label_arc_short + "</span>: "
+                    +sliceData.label_arc_long +"</br>"
+                    + sliceData.label_legend;
+            },
+            // define to sort pie slices (see https://github.com/d3/d3-shape/blob/master/README.md#pie_sort)
+            pieSortFunc: null
+            
         };
     
     var self = this;
     // merge default and input options (overwriting defaults where applicable)
     self.options = Object.assign({}, defaultOptions, options);
     // d3 constructs
-    var svg = null,
-        heightScale = d3.scaleLinear(),
+    var heightScale = d3.scaleLinear(),
         pie = d3.pie()
-                .sort(null)
+                .sort(self.options.pieSortFunc)
                 .value(function(d)
                 {
                     return d.width_var;
@@ -41,13 +74,7 @@ d3.aster = function(options) {
         tip = d3.tip()
                 .attr('class', 'd3-tip')
                 .offset([0, 0])
-                .html(function(d)
-                {
-                    return "<span style='color:"+d.data.color+"'>"
-                        +d.data.label_arc_short + "</span>: "
-                        +d.data.label_arc_long +"</br>"
-                        + d.data.label_legend;
-                }),
+                .html(self.options.toolTipHTMLFunc),
         outlineArc = d3.arc()
     ;
     
@@ -61,10 +88,10 @@ d3.aster = function(options) {
             var data = JSON.parse(JSON.stringify(selectionData));
     
             // get data range and update the height scale and arc generators appropriately
-            var hmin = d3.min(data,function(d){ return d.height_var; });
-            var hmax = d3.max(data,function(d){ return d.height_var; });
+            var hmin = d3.min(data,function(d){ return +d.height_var; });
+            var hmax = d3.max(data,function(d){ return +d.height_var; });
             heightScale.domain([hmin,hmax])
-                        .range([self.options.radius()*0.3,self.options.radius()-self.options.innerRadius]);
+                        .range([self.options.radiusFunc()*0.3,self.options.radiusFunc()-self.options.innerRadius]);
             updateArcs();
                 
             // check for data.width_var variable, if it doesn't exist, make slices even widths
@@ -77,7 +104,8 @@ d3.aster = function(options) {
             });
     
             // Select the svg element, if it exists.
-            svg = d3.select(this).selectAll("svg").data([data]);
+            var svg = d3.select(this).selectAll("svg").data([data]);
+            fadeOutLabels(svg);
 
             // Otherwise, create the skeletal chart.
             var gEnter = svg.enter().append("svg"); //.append("g");
@@ -85,59 +113,42 @@ d3.aster = function(options) {
             gEnter.append("g").attr("class", "pie-arcs-labels");
             gEnter.append("g").attr("class", "outer-arcs-group");
             
-            fadeOutLabels();
-            
             // re-select the svg (upon creation, svg will not have been appended)
             svg = d3.select(this).selectAll("svg")
                     .attr("width",self.options.width)
                     .attr("height",self.options.height)
                     .call(tip);
+    
+            // if we're "sweeping" in, delete all and start over
+            if( self.options.transitionMethod === "sweepSlice" )
+                svg.select(".pie-arcs-group").selectAll(".solidArc").remove();
             
             var pieData = pie(data);
             var g = svg.select(".pie-arcs-group")
                 .attr("transform", "translate(" + self.options.width / 2 + "," + self.options.height / 2 + ")");
-    
-            // create some hidden arcs to attach labels to
-            var hiddenPathUpdate = g.selectAll(".hiddenArc")
-                .data(pieData);
-    
-            var hiddenPath = hiddenPathUpdate
-                .enter()
-                .append("path")
-                .attr("fill-opacity", 0)
-                .attr("class", "hiddenArc")
-                .merge(hiddenPathUpdate); // MERGE enter & update
-    
-            hiddenPath
-                .attr("id", function(d) { return "labelArc_"+d.data.id; }) //Give each slice a unique ID
-                .attr("d", arc)
-                .transition()
-                .on("end", fadeInLabels(pieData) )
-            ;
             
             // created the visible arcs
             var pathUpdate = g.selectAll(".solidArc")
                             .data(pieData);
-            
+    
             var path = pathUpdate
                 .enter()
                 .append("path")
-                .attr("stroke", "gray")
                 .attr("class", "solidArc")
+                .style("stroke", "gray")
                 .on('mouseover', tip.show)
                 .on('mouseout', tip.hide)
                 .merge(pathUpdate); // MERGE enter & update
-            
-            pathUpdate.exit().remove();
     
             var prevEndAngle = 0; // copy the previous end angle to the next slice (for sweep transition effect)
             path.each(function(d) {
-                        d.prevEndAngle = prevEndAngle;
-                        prevEndAngle = d.endAngle;
-                    });
-            
+                d.prevEndAngle = prevEndAngle;
+                prevEndAngle = d.endAngle;
+            });
+    
             // update everything else
-            path.attr("fill", function(d)
+            path
+                .attr("fill", function(d)
                 {
                     return d.data.color;
                 })
@@ -146,16 +157,20 @@ d3.aster = function(options) {
                 .delay(getDelayFunction())
                 .duration(getDurationForTween())
                 .attrTween("d", tweenFunc)
+                .style("opacity",1)
             ;
             
-            updateArcLabels(pieData);
-            updateValueLabels(pieData);
-            updateOuterArc(pieData);
+            pathUpdate.exit().remove();
+    
+    
+            updateArcLabels(pieData,svg);
+            updateValueLabels(pieData,svg);
+            updateOuterArc(pieData,svg);
         });
 
     }
     
-    function updateOuterArc(pieData)
+    function updateOuterArc(pieData,svg)
     {
         if( self.options.showOuterArc )
         {
@@ -175,26 +190,37 @@ d3.aster = function(options) {
         }
     }
     
-    function fadeOutLabels() {
-        svg.select(".pie-arcs-labels")
-            .attr("transform", "translate(" + self.options.width / 2 + "," + self.options.height / 2 + ")")
+    function fadeMeOut(node)
+    {
+        node.transition()
+            .delay(0)
+            .duration(getDurationForTween() / 2)
             .style("opacity",0);
     }
     
-    function fadeInLabels(pieData)
+    function fadeMeIn(node,data)
     {
-        svg.select(".pie-arcs-labels")
-            .transition()
+        node.transition()
             .delay(function(){
                 if( self.options.transitionMethod === "sweepSlice" )
-                    return self.options.transitionDelay * (1+pieData.length);
+                    return self.options.transitionDelay * (1+data.length);
                 return self.options.transitionDelay;
             })
             .duration(getDurationForTween())
             .style("opacity",1);
     }
     
-    function updateValueLabels(pieData){
+    function fadeOutLabels(svg)
+    {
+        fadeMeOut(svg.select(".pie-arcs-labels"));
+    }
+    
+    function fadeInLabels(pieData,svg)
+    {
+        fadeMeIn(svg.select(".pie-arcs-labels"),pieData);
+    }
+    
+    function updateValueLabels(pieData,svg){
         
         if( !self.options.showHeightLabels )
             return;
@@ -207,18 +233,17 @@ d3.aster = function(options) {
             return d.endAngle - d.startAngle > .2;
         });
     
-        var insideLabelsUpdate = g.selectAll(".solidArcDataLabels")
+        var insideLabelsUpdate = g.selectAll(".height-data-labels-text")
             .data(labelData);
     
         var insideLabels = insideLabelsUpdate
             .enter()
             .append("text")
-            .attr("class", "solidArcDataLabels")
+            .attr("class", "height-data-labels-text")
             .attr("dy", ".35em")
             .attr("text-anchor", "middle")
-            .style("fill", "White")
-            .style("font-size", self.options.width * 0.25 + "%")
-            .style("font", "bold Arial")
+            .style("fill",self.options.heightDataLabelsFillFunc)
+            .style("font-size", self.options.width * 0.3 + "%")
             .merge(insideLabelsUpdate);
     
         insideLabels
@@ -228,17 +253,14 @@ d3.aster = function(options) {
             .duration(getDurationForTween())
             .attr("transform", function(d) { //set the label's origin to the center of the arc
                 //we have to make sure to set these before calling arc.centroid
-                d.outerRadius = self.options.radius(); // Set Outer Coordinate
+                d.outerRadius = self.options.radiusFunc(); // Set Outer Coordinate
                 d.innerRadius = self.options.innerRadius; // Set Inner Coordinate
                 var offset = d.outerRadius - d.innerRadius / 3;
                 var centroid = arc.centroid(d);
                 return "translate(" + arc.centroid(d) + ")rotate(" + angle(d) + ")";
             })
-            .text(function(d) {
-                var str = (+d.data.height_var).toFixed(0);
-                if( d.data.label_height_unit !== undefined )
-                    str += d.data.label_height_unit;
-                return  str; });
+            .text(self.options.heightDataLabelsFunc)
+            .on("end", fadeInLabels(pieData,svg) );
     
         insideLabelsUpdate.exit().remove();
     
@@ -249,7 +271,7 @@ d3.aster = function(options) {
         }
     }
     
-    function updateArcLabels(pieData)
+    function updateArcLabels(pieData,svg)
     {
         if( !self.options.showWidthLabels )
             return;
@@ -258,26 +280,45 @@ d3.aster = function(options) {
         {
             return d.endAngle - d.startAngle > .2;
         });
+    
+        // create some hidden arcs to attach labels to
+        var hiddenPathUpdate = svg.select(".pie-arcs-group")
+            .selectAll(".hiddenArc")
+            .data(pieData);
+    
+        var hiddenPath = hiddenPathUpdate
+            .enter()
+            .insert("path",":first-child")
+            .style("opacity", 0)
+            .attr("class", "hiddenArc")
+            .merge(hiddenPathUpdate); // MERGE enter & update
+    
+        hiddenPath
+            .attr("id", function(d) { return "labelArc_"+d.data.id; }) //Give each slice a unique ID
+            .transition()
+            .ease(d3.easeLinear)
+            .delay(getDelayFunction())
+            .duration(getDurationForTween())
+            .attr("d", arc)
+            .on("end", fadeInLabels(pieData,svg) )
+        ;
         
         var arcLabelsUpdate = svg.select(".pie-arcs-labels")
             .attr("transform", "translate(" + self.options.width / 2 + "," + self.options.height / 2 + ")")
-            .selectAll(".arcLabelsText")
+            .selectAll(".arc-labels-text")
             .data(labelData);
         
         var arcLabels = arcLabelsUpdate
                 .enter()
                 .append("text")
-                .attr("fill-opacity",1)
-                .attr("class", "arcLabelsText")
+                .attr("class", "arc-labels-text")
                 .attr("id",function(d){ return "text_label_"+d.data.id;})
-                .style("fill", "White" )
-                .style("stroke-width", 0.25 )
-                .style("stroke","black")
-                .style("font-size", self.options.width * 0.3 + "%")
-                .attr("x", function(d){ return 0.05 * self.options.radius() * (d.endAngle - d.startAngle);} ) //Move the text from the start angle of the arc
-                // .attr("dy", "14px") //Move the text down
-                .attr("dy", function(d) { return Math.round((self.options.radius() - self.options.innerRadius )*0.1) })
-                .style("font", "bold Arial")
+                .style("fill-opacity",1)
+                .style("fill",self.options.arcLabelsTextFillFunc)
+                .style("font-size", self.options.width * 0.35 + "%")
+                //Move the text from the start angle of the arc
+                .attr("x", function(d){ return 0.05 * self.options.radiusFunc() * (d.endAngle - d.startAngle);} )
+                .attr("dy", function(d) { return Math.round((self.options.radiusFunc() - self.options.innerRadius )*0.1) })
             .merge(arcLabelsUpdate)
         
         arcLabels
@@ -301,12 +342,12 @@ d3.aster = function(options) {
             .outerRadius(function(d)
             {
                 d.innerRadius = self.options.innerRadius;
-                d.outerRadius = heightScale(d.data.height_var) + self.options.innerRadius;
+                d.outerRadius = heightScale(+d.data.height_var) + self.options.innerRadius;
                 return d.outerRadius;
             });
         
         outlineArc.innerRadius(self.options.innerRadius)
-                    .outerRadius(self.options.radius())
+                    .outerRadius(self.options.radiusFunc())
     }
     
     function getDelayFunction() {
@@ -356,7 +397,7 @@ d3.aster = function(options) {
         // tweening functions
         function tweenChangeLength(b)
         {
-            // standard, just transition to the appropriate radius
+            // standard, just transition to the appropriate radiusFunc
             var i = d3.interpolate({innerRadius: 0}, b);
             return function(t)
             {
@@ -417,6 +458,18 @@ d3.aster = function(options) {
         return my;
     };
     
+    my.fitContainer = function(containerSelector)
+    {
+        if(d3.select(containerSelector).nodes().length === 0)
+            return my;
+        
+        var rect = d3.select(containerSelector).node().getBoundingClientRect();
+        self.options.width = rect.width;
+        self.options.height = rect.height;
+        
+        return my;
+    };
+    
     my.innerRadius = function(d) {
         if( arguments.length === 0 )
             return self.options.innerRadius;
@@ -433,6 +486,16 @@ d3.aster = function(options) {
     
     my.transitionMethodsArray = function() {
         return [ "changeLengthSlice", "narrowSlice", "sweepSlice", "twistSlice" ];
+    };
+    
+    my.setRandomTransition = function(exclude) {
+        var arr = [ "changeLengthSlice", "narrowSlice", "sweepSlice", "twistSlice" ];
+        var index = arr.indexOf(exclude);
+        if (index > -1) {
+            arr.splice(index, 1);
+}
+        var randomInt = Math.floor(Math.random() * (arr.length));
+        self.options.transitionMethod = arr[randomInt];
     };
     
     my.showOuterArc = function(d) {
@@ -474,6 +537,63 @@ d3.aster = function(options) {
         if( arguments.length === 0 )
             return self.options.transitionDelay;
         self.options.transitionDelay = d;
+        return my;
+    };
+    
+    // functions
+    my.radiusFunc = function(d) {
+        if( arguments.length === 0 )
+            return self.options.radiusFunc;
+        if( typeof d !== "function" )
+            throw new Error("Argument 'radiusFunc' must be a function");
+        self.options.radiusFunc = d;
+        return my;
+    };
+    
+    my.arcLabelsTextFillFunc = function(d) {
+        if( arguments.length === 0 )
+            return self.options.arcLabelsTextFillFunc;
+        if( typeof d !== "function" )
+            throw new Error("Argument 'arcLabelsTextFillFunc' must be a function");
+        self.options.arcLabelsTextFillFunc = d;
+        return my;
+    };
+    
+    my.heightDataLabelsFunc = function(d) {
+        if( arguments.length === 0 )
+            return self.options.heightDataLabelsFunc;
+        if( typeof d !== "function" )
+            throw new Error("Argument 'heightDataLabelsFunc' must be a function");
+        self.options.heightDataLabelsFunc = d;
+        return my;
+    };
+    
+    my.heightDataLabelsFillFunc = function(d) {
+        if( arguments.length === 0 )
+            return self.options.heightDataLabelsFillFunc;
+        if( typeof d !== "function" )
+            throw new Error("Argument 'heightDataLabelsFillFunc' must be a function");
+        self.options.heightDataLabelsFillFunc = d;
+        return my;
+    };
+    
+    my.tooltipHTMLFunc = function(d) {
+        if( arguments.length === 0 )
+            return self.options.tooltipHTMLFunc;
+        if( typeof d !== "function" )
+            throw new Error("Argument 'tooltipHTMLFunc' must be a function");
+        self.options.tooltipHTMLFunc = d;
+        tip.html(self.options.toolTipHTMLFunc);
+        return my;
+    };
+    
+    my.pieSortFunc = function(d) {
+        if( arguments.length === 0 )
+            return self.options.pieSortFunc;
+        if( d !== null && typeof d !== "function" )
+            throw new Error("Argument 'pieSortFunc' must be a function");
+        self.options.pieSortFunc = d;
+        pie.sort(self.options.pieSortFunc);
         return my;
     };
     
