@@ -4,134 +4,51 @@
  *  with updates to be d3 v4 compatible
  */
 
-var width = 500,
-    height = 500,
-    radius = Math.min(width, height) / 2,
-    innerRadius = 0; //  0.3 * radius;
+var body = d3.select("body");
 
-var pie = d3.pie()
-    .sort(null)
-    .value(function(d)
-    {
-        return d.width;
-    });
-
-var tip = d3.tip()
-    .attr('class', 'd3-tip')
-    .offset([0, 0])
-    .html(function(d)
-    {
-        return "<span style='color:"+d.data.color+"'>"+d.data.legend_label + "</span>: "+d.data.label_major +"</br>"+ "Feeling: "+ d.data.label_minor;
-    });
-
-var arc = d3.arc()
-    .innerRadius(innerRadius)
-    .outerRadius(function(d)
-    {
-        d.innerRadius = innerRadius;
-        d.outerRadius = (radius - innerRadius) * (d.data.height_var / 100.0) + innerRadius;
-        return d.outerRadius;
-    });
-
-var outlineArc = d3.arc()
-    .innerRadius(innerRadius)
-    .outerRadius(radius);
-
-d3.select("body").append("h1")
+body.append("h1")
     .text("Kaleidoscope Cannabis Logo/Terpene Pie Mockup");
 
-d3.select("body").append("h2")
+body.append("h2")
     .text("Mouseover pie slices to see info (can add labels later)");
 
-d3.select("body").append("h2")
-    .text("Click on a slice to toggle random terpene values");
+body.append("h2")
+    .text("Click anywhere in the view to toggle random terpene values and transitions");
 
-var svg = d3.select("body").append("svg")
-    .attr("width", width)
-    .attr("height", height)
-    .append("g")
-    .attr("transform", "translate(" + width / 2 + "," + height / 2 + ")");
+var aster = new d3.aster({width: 500, height: 500, showOuterArc: false, transitionMethod: "sweepSlice"});
+aster.innerRadius(0);
 
-svg.call(tip);
-
-
-var prevEndAngle = 0;
-
+var theData;
 d3.csv('dist/data/kaleidoscope_logo_data.csv', function(error, data)
+//  d3.csv('dist/data/example_data_width_var.csv', function(error, data)
 {
-    var sliceWidth = 1 / data.length; // constant slice width
-    data.forEach(function(d)
-    {
-        d.width = sliceWidth;
-    });
-    // for (var i = 0; i < data.score; i++) { console.log(data[i].id) }
-    
-    var path = svg.selectAll(".solidArc")
-        .data(pie(data))
-        .enter().append("path")
-        .each(function(d) {
-            d.prevEndAngle = prevEndAngle;
-            prevEndAngle = d.endAngle;
-        })
-        .attr("fill", function(d)
-        {
-            return d.data.color;
-        })
-        .attr("class", "solidArc")
-        .attr("stroke", "gray")
-        .on('mouseover', tip.show)
-        .on('mouseout', tip.hide)
-        .on('click', toggleRandomValues)
-        // .attr("d", arc)
-        .transition()
-        .ease(d3.easeLinear)
-        .delay(function(d,i){
-            return i * 400;
-        })
-        .duration(200)
-        .attrTween("d", tweenPie)
-    ;
-    
-    // var outerPath = svg.selectAll(".outlineArc")
-    //     .data(pie(data))
-    //     .enter().append("path")
-    //     .attr("fill", "none")
-    //     .attr("stroke", "gray")
-    //     .attr("class", "outlineArc")
-    //     .attr("d", outlineArc);
+    theData = data;
+    // add a unique id to the data if it doesn't exist
+    var id = 0;
+    theData.forEach(function(d) { if(d.id === undefined) d.id = id++; });
+    renderAster();
 });
+
+body.on('click',toggleRandomValues);
 
 function toggleRandomValues()
 {
-    var path = svg.selectAll(".solidArc")
-        .each(function(d)
-        {
-            d.data.height_var = Math.random() * 100;
-        })
-        .transition()
-        .ease(d3.easeLinear)
-        .duration(800)
-        .attrTween("d", tweenDonut)
-        ;
-    
+    aster.showWidthLabels(true);
+    aster.showHeightLabels(true);
+    var transitions = aster.transitionMethodsArray();
+    var randomInt = Math.floor(Math.random() * (transitions.length));
+    aster.transitionMethod(transitions[randomInt]);
+    theData.forEach(function(d)
+                    {
+                        d.height_var = Math.random() * 100;
+                        // d.width_var = Math.random() * 100;
+                    });
+    renderAster();
 }
 
-function tweenPie(b)
-{
-    // b.innerRadius = 0;
-    var i = d3.interpolate({startAngle: b.prevEndAngle, endAngle: b.prevEndAngle}, b);
-    return function(t)
-    {
-        return arc(i(t));
-    };
+function renderAster() {
+    d3.select("body")
+        .datum(theData)
+        .call(aster);
 }
 
-function tweenDonut(b)
-{
-    b.innerRadius = radius * .6;
-    var i = d3.interpolate({innerRadius: 0}, b);
-    return function(t)
-    {
-        return arc(i(t));
-    };
-}
