@@ -4,6 +4,15 @@ body {
   text-align: center;
 }
 
+.transition-toggle-form {
+  padding: 1%;
+}
+
+.transition-labels {
+  padding: 1%;
+  font-size: 14px;
+}
+
 #brand-labels-div div {
   padding: 40%;
 }

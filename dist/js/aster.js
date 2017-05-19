@@ -1,52 +1,80 @@
 /**
  * reusable D3 aster plot
- * requires D3 and D3 tip
+ * Initially inspired by: http://bl.ocks.org/bbest/2de0e25d4840c68f2db1
+ *  with updates to be d3 v4 compatible
+ * requires merge-sort, D3 version 4, and D3 tip
+ * https://github.com/justinforce/merge-sort
+ * https://d3js.org/
+ * https://github.com/VACLab/d3-tip
  * Created by ryshackleton on 5/16/17.
  */
 var d3 = d3 || {};
 d3.aster = function(options) {
-    // Default user-settable options. Pass to constructor to modify, or use methods below to change
+    /* Default user-settable options. Pass to constructor to modify, or use methods below to change
+        - accessible via aster.defaultOptions() method
+     */
     var defaultOptions =
         {
             // static options
             margin: { top: 10, left: 10, right: 10, bottom: 10 },
             width: 500,
             height: 500,
-            innerRadius: 0,
-            showOuterArc: false, // shows an outline of the pie slices and the outer arc
+            innerRadius: 0, // defines the radius of empty space in the center of the plot
+            
+            /* if true, shows an outline of the pie slices and the outer arc
+             * css selector: .outlineArc */
+            showOuterArc: false,
+            
+            /* if true, adds labels along the arc of the aster plot,
+                labels can be modified using arcLabelsTextFunc and arcLabelsTextFillFunc
+                 css selector: .arc-labels-text */
             showWidthLabels: false,
+            
+            /* if true, adds radial labels, usually representing the height variable
+             labels can be modified using heightLabelsTextFunc and heightLabelsTextFillFunc
+             css selector: .height-data-labels-text */
             showHeightLabels: false,
-            // transition methods: "changeLengthSlice", "narrowSlice" "sweepSlice", "twistSlice"
+            
+            /* transition methods: "changeLengthSlice", "narrowSlice" "sweepSlice", "twistSlice" */
             transitionMethod: "changeLengthSlice",
-            // changes animation speed and delay
+            /* changes animation speed and delay */
             transitionDuration: 50,
             transitionDelay: 200,
             
-            // functions for modifying display of aster plot (labels, tooltips, etc)
-            // --> set these functions using my.radiusFunc(functionYouHaveDefined); <--
+            /* functions for modifying display of aster plot (labels, tooltips, etc)
+            --> set these functions using my.radiusFunc(functionYouHaveDefined); <--
+            */
             radiusFunc: function(){
                 return Math.min(this.width - this.margin.left - this.margin.right,
                                 this.height - this.margin.top - this.margin.bottom) / 2;
             },
+            
+            /* Return any text string: HTML not allowed here */
             arcLabelsTextFunc: function(d){ return d.data.label_arc_short; },
-            // brightens arc labels - create functions to modify label fill
+            
+            /* function to modify label fill - this one brightens arc labels using d3.color.brighter */
             arcLabelsTextFillFunc: function(d) {
                 var sliceData = d.data; // access to data for each slice
                 return d3.color(sliceData.color).brighter(0.6).toString();
             },
-            heightDataLabelsFunc: function(d) {
+            
+            /* function to modify data labels - this one trims to 0 decimal places and adds the label_height_unit
+               variable to the string if it exists */
+            heightLabelsFunc: function(d) {
                 var sliceData = d.data; // access to data for each slice
                 var str = (+sliceData.height_var).toFixed(0); // trim off decimals
                 if( sliceData.label_height_unit !== undefined ) // if there is a unit label, append it
                     str += sliceData.label_height_unit;
                 return  str;
             },
-            // darkens height data labels - create functions to modify label fill
-            heightDataLabelsFillFunc: function(d) {
+            
+            /* function to modify data label fill - this one darkens arc labels using d3.color.darker */
+            heightLabelsFillFunc: function(d) {
                 var sliceData = d.data; // access to data for each slice
                 return d3.color(sliceData.color).darker(0.9).toString();
             },
-            // modify to return some hmtl based on the passed in data to change the tooltip
+            
+            /* function to modify tooltip HTML - this one just prints out the data on 2 lines */
             toolTipHTMLFunc: function(d)
             {
                 var sliceData = d.data;
@@ -55,12 +83,24 @@ d3.aster = function(options) {
                     +sliceData.label_arc_long +"</br>"
                     + sliceData.label_legend;
             },
-            // define to sort pie slices (see https://github.com/d3/d3-shape/blob/master/README.md#pie_sort)
+            
+            /*  comparison function to sort pie slices, sort is done manually using https://github.com/justinforce/merge-sort
+                to prevent problems with browser unstable default sorting:
+                (http://stackoverflow.com/questions/3026281/array-sort-sorting-stability-in-different-browsers)
+
+                sort ascending by height example:
+                    function(a, b) { return +a.height_var < +b.height_var; }
+                    
+                sort descending by width example:
+                function(a, b) { return +a.width_var > +b.width_var; }
+            */
             pieSortFunc: null
+            
             
         };
     
     var self = this;
+    
     // merge default and input options (overwriting defaults where applicable)
     self.options = Object.assign({}, defaultOptions, options);
     // d3 constructs
@@ -78,7 +118,16 @@ d3.aster = function(options) {
         outlineArc = d3.arc()
     ;
     
-    // main render method to expose API
+    /* main PUBLIC render method to expose API
+     * this is the main method called upon update, and requires a selection:
+     * useage example:
+     * var myAster = new d3.aster();
+     * d3.json("http://myserver.com",function(err,data){
+     *      d3.select("body")
+     *          .selectAll("#myAsterDivID")
+     *          .datum(data)
+     *          .call(myAster);
+     */
     function my(selection) {
         
         var tweenFunc = getTweenFunction();
@@ -86,6 +135,12 @@ d3.aster = function(options) {
         selection.each(function(selectionData) {
             // clone the data
             var data = JSON.parse(JSON.stringify(selectionData));
+            
+            // manually sort data (don't use default array.sort, which can use unstable sort)
+            if( self.options.pieSortFunc !== null  )
+            {
+                data = data.mergeSort(self.options.pieSortFunc);
+            }
     
             // get data range and update the height scale and arc generators appropriately
             var hmin = d3.min(data,function(d){ return +d.height_var; });
@@ -129,7 +184,7 @@ d3.aster = function(options) {
             
             // created the visible arcs
             var pathUpdate = g.selectAll(".solidArc")
-                            .data(pieData);
+                            .data(pieData,function(d){ return d.data.id; });
     
             var path = pathUpdate
                 .enter()
@@ -157,7 +212,6 @@ d3.aster = function(options) {
                 .delay(getDelayFunction())
                 .duration(getDurationForTween())
                 .attrTween("d", tweenFunc)
-                .style("opacity",1)
             ;
             
             pathUpdate.exit().remove();
@@ -170,6 +224,7 @@ d3.aster = function(options) {
 
     }
     
+    /* ---- PRIVATE METHODS ------ */
     function updateOuterArc(pieData,svg)
     {
         if( self.options.showOuterArc )
@@ -234,16 +289,17 @@ d3.aster = function(options) {
         });
     
         var insideLabelsUpdate = g.selectAll(".height-data-labels-text")
-            .data(labelData);
+            .data(labelData, function(d){ return d.data.id; });
     
+        var fontsizePercent = self.options.width * 0.35;
         var insideLabels = insideLabelsUpdate
             .enter()
             .append("text")
             .attr("class", "height-data-labels-text")
             .attr("dy", ".35em")
             .attr("text-anchor", "middle")
-            .style("fill",self.options.heightDataLabelsFillFunc)
-            .style("font-size", self.options.width * 0.3 + "%")
+            .style("fill",self.options.heightLabelsFillFunc)
+            .style("font-size", fontsizePercent + "%")
             .merge(insideLabelsUpdate);
     
         insideLabels
@@ -259,7 +315,10 @@ d3.aster = function(options) {
                 var centroid = arc.centroid(d);
                 return "translate(" + arc.centroid(d) + ")rotate(" + angle(d) + ")";
             })
-            .text(self.options.heightDataLabelsFunc)
+            .text(function(d){
+                var maxPixelLength = d.outerRadius - d.innerRadius;
+                return trimTextToLength(self.options.heightLabelsFunc(d),fontsizePercent,maxPixelLength);
+            })
             .on("end", fadeInLabels(pieData,svg) );
     
         insideLabelsUpdate.exit().remove();
@@ -284,7 +343,7 @@ d3.aster = function(options) {
         // create some hidden arcs to attach labels to
         var hiddenPathUpdate = svg.select(".pie-arcs-group")
             .selectAll(".hiddenArc")
-            .data(pieData);
+            .data(labelData, function(d){ return d.data.id; });
     
         var hiddenPath = hiddenPathUpdate
             .enter()
@@ -303,11 +362,14 @@ d3.aster = function(options) {
             .on("end", fadeInLabels(pieData,svg) )
         ;
         
+        hiddenPathUpdate.exit().remove();
+        
         var arcLabelsUpdate = svg.select(".pie-arcs-labels")
             .attr("transform", "translate(" + self.options.width / 2 + "," + self.options.height / 2 + ")")
             .selectAll(".arc-labels-text")
-            .data(labelData);
+            .data(labelData, function(d){ return d.data.id; });
         
+        var fontsizePercent = self.options.width * 0.35;
         var arcLabels = arcLabelsUpdate
                 .enter()
                 .append("text")
@@ -315,11 +377,16 @@ d3.aster = function(options) {
                 .attr("id",function(d){ return "text_label_"+d.data.id;})
                 .style("fill-opacity",1)
                 .style("fill",self.options.arcLabelsTextFillFunc)
-                .style("font-size", self.options.width * 0.35 + "%")
+                .style("font-size", fontsizePercent + "%")
                 //Move the text from the start angle of the arc
-                .attr("x", function(d){ return 0.05 * self.options.radiusFunc() * (d.endAngle - d.startAngle);} )
+                .attr("x", function(d){
+                    return 0.05 * self.options.radiusFunc() * (d.endAngle - d.startAngle); } )
                 .attr("dy", function(d) { return Math.round((self.options.radiusFunc() - self.options.innerRadius )*0.1) })
             .merge(arcLabelsUpdate)
+                .each(function(d) {
+                    d.arcLength = heightScale(d.data.height_var) * (d.endAngle - d.startAngle);
+                });
+    
         
         arcLabels
             .each(function(d) {
@@ -328,12 +395,43 @@ d3.aster = function(options) {
                 if( textPath.nodes().length < 1 ){
                     textPath = arcLabel.append("textPath");
                 }
+                
+                // call the label text function, but trim to ensure that the values don't extend past the end of the arc
+                var labelTextTrimmed = trimTextToLength(self.options.arcLabelsTextFunc(d),fontsizePercent,d.arcLength);
                 textPath
                     .attr("xlink:href", "#labelArc_" + d.data.id )
-                    .text(self.options.arcLabelsTextFunc)
+                    .text(labelTextTrimmed);
                 ;
             })
         ;
+        
+        arcLabels.exit().remove();
+    }
+   
+    /* measure the length of a string in pixels:
+     * http://stackoverflow.com/questions/16478836/measuring-length-of-string-in-pixel-in-javascript
+     */
+    function stringLengthPixels(str,fontsizePercent) {
+        var canvas = document.createElement('canvas');
+        var ctx = canvas.getContext("2d");
+        ctx.font = fontsizePercent+"% Arial";
+        return ctx.measureText(str).width;
+    }
+    
+    /* determine the length of the string and truncate if the text is longer than the specified max size */
+    function trimTextToLength(labelText,fontsizePercent,maxLengthPixels){
+        var charWidth = stringLengthPixels("e",fontsizePercent);
+        var pixelSizeOfOneLetter = charWidth < 0.1 ? 1 : charWidth;
+        var maxNChars = Math.floor(maxLengthPixels / pixelSizeOfOneLetter);
+        var returnText = labelText;
+        if( returnText.length > maxNChars ) {
+            // trim string to the appropriate length
+            returnText = returnText.substr(0,maxNChars);
+            // replace the last 3 letters with ... to indicate truncation
+            // https://regex101.com/r/DmWg40/1
+            returnText = returnText.replace( /...$/g , "...");
+        }
+        return returnText;
     }
     
     function updateArcs()
@@ -436,7 +534,12 @@ d3.aster = function(options) {
         }
     }
     
-    // getter/setters
+    /* ---- PUBLIC METHODS ------ */
+    //  getter/setters
+    my.defaultOptions = function() {
+        return defaultOptions;
+    };
+    
     my.margin = function(d) {
         if( arguments.length === 0 )
             return self.options.margin;
@@ -567,21 +670,21 @@ d3.aster = function(options) {
         return my;
     };
     
-    my.heightDataLabelsFunc = function(d) {
+    my.heightLabelsFunc = function(d) {
         if( arguments.length === 0 )
-            return self.options.heightDataLabelsFunc;
+            return self.options.heightLabelsFunc;
         if( typeof d !== "function" )
-            throw new Error("Argument 'heightDataLabelsFunc' must be a function");
-        self.options.heightDataLabelsFunc = d;
+            throw new Error("Argument 'heightLabelsFunc' must be a function");
+        self.options.heightLabelsFunc = d;
         return my;
     };
     
-    my.heightDataLabelsFillFunc = function(d) {
+    my.heightLabelsFillFunc = function(d) {
         if( arguments.length === 0 )
-            return self.options.heightDataLabelsFillFunc;
+            return self.options.heightLabelsFillFunc;
         if( typeof d !== "function" )
-            throw new Error("Argument 'heightDataLabelsFillFunc' must be a function");
-        self.options.heightDataLabelsFillFunc = d;
+            throw new Error("Argument 'heightLabelsFillFunc' must be a function");
+        self.options.heightLabelsFillFunc = d;
         return my;
     };
     
@@ -601,7 +704,6 @@ d3.aster = function(options) {
         if( d !== null && typeof d !== "function" )
             throw new Error("Argument 'pieSortFunc' must be a function");
         self.options.pieSortFunc = d;
-        pie.sort(self.options.pieSortFunc);
         return my;
     };
     

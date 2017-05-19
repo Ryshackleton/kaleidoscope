@@ -1,7 +1,5 @@
 /**
  * Created by ryshackleton on 5/15/17.
- * Modified from: http://bl.ocks.org/bbest/2de0e25d4840c68f2db1
- *  with updates to be d3 v4 compatible
  */
 
 var aster = new d3.aster({width: 500, height: 500, showOuterArc: false, transitionMethod: "sweepSlice"});
@@ -14,7 +12,30 @@ body.append("h1")
     .text("Kaleidoscope Cannabis Logo/Terpene Pie Mockup");
 
 body.append("h2")
-    .text("Mouseover the name of a brand to see the terpene content");
+    .text("Mouseover the name of a brand below to see the terpene content");
+
+var transitionForm = body.append("form")
+    .attr("class","transition-toggle-form");
+
+transitionForm.append("label")
+    .text("Transition Methods: ")
+    .attr("class","transition-labels");
+        
+aster.transitionMethodsArray().forEach(function(d) {
+    transitionForm.append("label")
+        .text(d+" ")
+        .attr("class","transition-labels")
+        .append("input")
+        .attr("type","radio")
+        .attr("name","transition")
+        .attr("value",d)
+        .on('click', function() {
+            aster.transitionMethod(d);
+            d3.select("#aster-div")
+                .datum(lastSelectedData)
+                .call(aster);
+        });
+});
 
 body.append("button")
     .text("Sort By Increasing Terpenes")
@@ -117,7 +138,7 @@ d3.csv('dist/data/cannabis_data.csv', function(error, data)
 
                 aster.showWidthLabels(true);
                 aster.showHeightLabels(true);
-                aster.setRandomTransition("sweepSlice");
+                // aster.setRandomTransition("sweepSlice");
                 d3.select("#aster-div")
                     .datum(brandData[d])
                     .call(aster);
