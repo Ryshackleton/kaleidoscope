@@ -1,9 +1,16 @@
 /**
  * Created by ryshackleton on 5/15/17.
  */
-
-var aster = new d3.aster({width: 500, height: 500, showOuterArc: false, transitionMethod: "sweepSlice"});
-aster.innerRadius(10);
+var asterOptions = {
+    width: 500, height: 500,
+    showHeightLabels: true,
+    showWidthLabels: true,
+    showOuterArc: false,
+    transitionMethod: "sweepSlice",
+    innerRadius: 50,
+    labelFontSizePercentageOfWidth: 0.35
+};
+var aster = new d3.aster(asterOptions);
 var lastSelectedData = null;
 
 var body = d3.select("body");
@@ -14,13 +21,12 @@ body.append("h1")
 body.append("h2")
     .text("Mouseover the name of a brand below to see the terpene content");
 
+/* add radio buttons to toggle different transition types */
 var transitionForm = body.append("form")
     .attr("class","transition-toggle-form");
-
 transitionForm.append("label")
     .text("Transition Methods: ")
     .attr("class","transition-labels");
-        
 aster.transitionMethodsArray().forEach(function(d) {
     transitionForm.append("label")
         .text(d+" ")
@@ -37,6 +43,7 @@ aster.transitionMethodsArray().forEach(function(d) {
         });
 });
 
+/* buttons to toggle sorting by height */
 body.append("button")
     .text("Sort By Increasing Terpenes")
     .on('click', function() {
@@ -58,6 +65,7 @@ body.append("button")
             .call(aster);
     });
 
+/* button to toggle different labels along the arcs */
 body.append("button")
     .text("Label By Feeling")
     .on('click', function() {
@@ -75,20 +83,18 @@ body.append("button")
             .datum(lastSelectedData)
             .call(aster);
     });
-
+/* div for the aster plot */
 body.append("div")
     .attr("id","aster-div");
 
+/* div for the brand labels */
 body.append("div")
     .attr("id","brand-labels-div");
 
-// load the logo
+// load the logo aster data with no labels, etc
 d3.csv('dist/data/kaleidoscope_logo_data.csv', function(error, data)
 {
     lastSelectedData = data;
-    // add a unique id to the data if it doesn't exist
-    var id = 0;
-    data.forEach(function(d) { if(d.id === undefined) d.id = id++; });
     d3.select("#aster-div")
         .datum(data)
         .call(aster);
@@ -98,8 +104,7 @@ d3.csv('dist/data/kaleidoscope_logo_data.csv', function(error, data)
 var brandData = {};
 d3.csv('dist/data/cannabis_data.csv', function(error, data)
 {
-    // group the data and add a unique ID to each value
-    var id = 0;
+    // group the data
     // deal with ancient browsers
     var allVals = Object.keys(data).map(function(key) {
         return data[key];
@@ -109,8 +114,6 @@ d3.csv('dist/data/cannabis_data.csv', function(error, data)
     brandData = allVals.reduce(function(grouped,d) {
         if( d.brand !== undefined )
         {
-            if( d.id === undefined)
-                d.id = "sliceID_"+id++;
             if( grouped[d.brand] === undefined )
                 grouped[d.brand] = [];
             grouped[d.brand].push(d);
@@ -138,7 +141,9 @@ d3.csv('dist/data/cannabis_data.csv', function(error, data)
 
                 aster.showWidthLabels(true);
                 aster.showHeightLabels(true);
-                // aster.setRandomTransition("sweepSlice");
+                aster.showCenterLabel(true);
+                aster.centerLabelText(d);
+                aster.labelFontSizePercentageOfWidth(0.35);
                 d3.select("#aster-div")
                     .datum(brandData[d])
                     .call(aster);

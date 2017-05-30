@@ -20,10 +20,16 @@ d3.aster = function(options) {
             width: 500,
             height: 500,
             innerRadius: 0, // defines the radius of empty space in the center of the plot
+            heightDomain: null, // user settable height domain [min, max]
             
             /* if true, shows an outline of the pie slices and the outer arc
              * css selector: .outlineArc */
             showOuterArc: false,
+    
+            /* if true, adds a label to the center of the plot,
+             labels can be modified using centerLabelTextFunc
+             css selector: .center-label-text */
+            showCenterLabel: false,
             
             /* if true, adds labels along the arc of the aster plot,
                 labels can be modified using arcLabelsTextFunc and arcLabelsTextFillFunc
@@ -40,6 +46,9 @@ d3.aster = function(options) {
             /* changes animation speed and delay */
             transitionDuration: 50,
             transitionDelay: 200,
+            /* adjusts font size of labels as a percentage of the page width
+                (usually needs to be smaller for more data & thinner bar widths */
+            labelFontSizePercentageOfWidth: 0.25,
             
             /* functions for modifying display of aster plot (labels, tooltips, etc)
             --> set these functions using my.radiusFunc(functionYouHaveDefined); <--
@@ -48,6 +57,9 @@ d3.aster = function(options) {
                 return Math.min(this.width - this.margin.left - this.margin.right,
                                 this.height - this.margin.top - this.margin.bottom) / 2;
             },
+            
+            /* Return any text string for the center labels: HTML not allowed here */
+            centerLabelText: "",
             
             /* Return any text string: HTML not allowed here */
             arcLabelsTextFunc: function(d){ return d.data.label_arc_short; },
@@ -109,7 +121,8 @@ d3.aster = function(options) {
                 .value(function(d)
                 {
                     return d.width_var;
-                }),
+                })
+                .sort(null),
         arc = d3.arc(),
         tip = d3.tip()
                 .attr('class', 'd3-tip')
@@ -131,10 +144,21 @@ d3.aster = function(options) {
     function my(selection) {
         
         var tweenFunc = getTweenFunction();
-        
+    
         selection.each(function(selectionData) {
             // clone the data
             var data = JSON.parse(JSON.stringify(selectionData));
+            
+            // check for data.width_var variable, if it doesn't exist, make slices even widths
+            var sliceWidth = 1 / data.length; // constant slice width
+            var id = 0;
+            data.forEach(function(d) {
+                if( d.width_var === undefined )
+                {
+                    d.width_var = sliceWidth;
+                }
+                d.slice_id = id++;
+            });
             
             // manually sort data (don't use default array.sort, which can use unstable sort)
             if( self.options.pieSortFunc !== null  )
@@ -142,31 +166,21 @@ d3.aster = function(options) {
                 data = data.mergeSort(self.options.pieSortFunc);
             }
     
-            // get data range and update the height scale and arc generators appropriately
-            var hmin = d3.min(data,function(d){ return +d.height_var; });
-            var hmax = d3.max(data,function(d){ return +d.height_var; });
-            heightScale.domain([hmin,hmax])
-                        .range([self.options.radiusFunc()*0.3,self.options.radiusFunc()-self.options.innerRadius]);
+            updateHeightScale(data);
+            
             updateArcs();
-                
-            // check for data.width_var variable, if it doesn't exist, make slices even widths
-            var sliceWidth = 1 / data.length; // constant slice width
-            data.forEach(function(d) {
-                if( typeof(d.width_var ) === "undefined" )
-                {
-                    d.width_var = sliceWidth;
-                }
-            });
-    
+            
             // Select the svg element, if it exists.
             var svg = d3.select(this).selectAll("svg").data([data]);
             fadeOutLabels(svg);
 
             // Otherwise, create the skeletal chart.
-            var gEnter = svg.enter().append("svg"); //.append("g");
+            var gEnter = svg.enter().append("svg");
+            gEnter.append("g").attr("class", "outer-arcs-group");
             gEnter.append("g").attr("class", "pie-arcs-group");
             gEnter.append("g").attr("class", "pie-arcs-labels");
-            gEnter.append("g").attr("class", "outer-arcs-group");
+            gEnter.append("g").attr("class", "pie-center-label").append("svg:text")
+                .attr("class", "center-label-text").attr("dy", ".35em").attr("text-anchor", "middle");
             
             // re-select the svg (upon creation, svg will not have been appended)
             svg = d3.select(this).selectAll("svg")
@@ -176,7 +190,9 @@ d3.aster = function(options) {
     
             // if we're "sweeping" in, delete all and start over
             if( self.options.transitionMethod === "sweepSlice" )
+            {
                 svg.select(".pie-arcs-group").selectAll(".solidArc").remove();
+            }
             
             var pieData = pie(data);
             var g = svg.select(".pie-arcs-group")
@@ -184,8 +200,8 @@ d3.aster = function(options) {
             
             // created the visible arcs
             var pathUpdate = g.selectAll(".solidArc")
-                            .data(pieData,function(d){ return d.data.id; });
-    
+                .data(pieData);
+
             var path = pathUpdate
                 .enter()
                 .append("path")
@@ -194,13 +210,13 @@ d3.aster = function(options) {
                 .on('mouseover', tip.show)
                 .on('mouseout', tip.hide)
                 .merge(pathUpdate); // MERGE enter & update
-    
+
             var prevEndAngle = 0; // copy the previous end angle to the next slice (for sweep transition effect)
             path.each(function(d) {
                 d.prevEndAngle = prevEndAngle;
                 prevEndAngle = d.endAngle;
             });
-    
+
             // update everything else
             path
                 .attr("fill", function(d)
@@ -213,10 +229,10 @@ d3.aster = function(options) {
                 .duration(getDurationForTween())
                 .attrTween("d", tweenFunc)
             ;
-            
+
             pathUpdate.exit().remove();
-    
-    
+
+            updateCenterLabelText(svg);
             updateArcLabels(pieData,svg);
             updateValueLabels(pieData,svg);
             updateOuterArc(pieData,svg);
@@ -229,14 +245,23 @@ d3.aster = function(options) {
     {
         if( self.options.showOuterArc )
         {
-            svg.selectAll(".outer-arcs-group")
+            var outerUpdate = svg.selectAll(".outer-arcs-group")
                 .attr("transform", "translate(" + self.options.width / 2 + "," + self.options.height / 2 + ")")
                 .selectAll(".outlineArc")
-                .data(pieData)
+                .data(pieData/*,function(d){ return d.data.slice_id; }*/);
+            
+            var outer = outerUpdate
                 .enter().append("path")
                 .attr("fill", "none")
                 .attr("stroke", "gray")
                 .attr("class", "outlineArc")
+                .merge(outerUpdate);
+            
+            outer
+                .transition()
+                .ease(d3.easeLinear)
+                .delay(self.options.transitionDelay)
+                .duration(self.options.transitionDuration * 3)
                 .attr("d", outlineArc);
         }
         else
@@ -249,7 +274,7 @@ d3.aster = function(options) {
     {
         node.transition()
             .delay(0)
-            .duration(getDurationForTween() / 2)
+            .duration(getDurationForTween() * 0.1)
             .style("opacity",0);
     }
     
@@ -259,7 +284,7 @@ d3.aster = function(options) {
             .delay(function(){
                 if( self.options.transitionMethod === "sweepSlice" )
                     return self.options.transitionDelay * (1+data.length);
-                return self.options.transitionDelay;
+                return self.options.transitionDelay * 2;
             })
             .duration(getDurationForTween())
             .style("opacity",1);
@@ -289,9 +314,10 @@ d3.aster = function(options) {
         });
     
         var insideLabelsUpdate = g.selectAll(".height-data-labels-text")
-            .data(labelData, function(d){ return d.data.id; });
+            .data(labelData, function(d){
+                return d.data.slice_id; });
     
-        var fontsizePercent = self.options.width * 0.35;
+        var fontsizePercent = self.options.width * self.options.labelFontSizePercentageOfWidth;
         var insideLabels = insideLabelsUpdate
             .enter()
             .append("text")
@@ -311,8 +337,6 @@ d3.aster = function(options) {
                 //we have to make sure to set these before calling arc.centroid
                 d.outerRadius = self.options.radiusFunc(); // Set Outer Coordinate
                 d.innerRadius = self.options.innerRadius; // Set Inner Coordinate
-                var offset = d.outerRadius - d.innerRadius / 3;
-                var centroid = arc.centroid(d);
                 return "translate(" + arc.centroid(d) + ")rotate(" + angle(d) + ")";
             })
             .text(function(d){
@@ -343,7 +367,7 @@ d3.aster = function(options) {
         // create some hidden arcs to attach labels to
         var hiddenPathUpdate = svg.select(".pie-arcs-group")
             .selectAll(".hiddenArc")
-            .data(labelData, function(d){ return d.data.id; });
+            .data(labelData/*, function(d){ return d.data.id; }*/);
     
         var hiddenPath = hiddenPathUpdate
             .enter()
@@ -353,7 +377,7 @@ d3.aster = function(options) {
             .merge(hiddenPathUpdate); // MERGE enter & update
     
         hiddenPath
-            .attr("id", function(d) { return "labelArc_"+d.data.id; }) //Give each slice a unique ID
+            .attr("id", function(d) { return "labelArc_"+d.data.slice_id; }) //Give each slice a unique ID
             .transition()
             .ease(d3.easeLinear)
             .delay(getDelayFunction())
@@ -367,14 +391,14 @@ d3.aster = function(options) {
         var arcLabelsUpdate = svg.select(".pie-arcs-labels")
             .attr("transform", "translate(" + self.options.width / 2 + "," + self.options.height / 2 + ")")
             .selectAll(".arc-labels-text")
-            .data(labelData, function(d){ return d.data.id; });
+            .data(labelData, function(d){ return d.data.slice_id; });
         
-        var fontsizePercent = self.options.width * 0.35;
+        var fontsizePercent = self.options.width * self.options.labelFontSizePercentageOfWidth;
         var arcLabels = arcLabelsUpdate
                 .enter()
                 .append("text")
                 .attr("class", "arc-labels-text")
-                .attr("id",function(d){ return "text_label_"+d.data.id;})
+                .attr("id",function(d){ return d.data.slice_id; })
                 .style("fill-opacity",1)
                 .style("fill",self.options.arcLabelsTextFillFunc)
                 .style("font-size", fontsizePercent + "%")
@@ -398,14 +422,29 @@ d3.aster = function(options) {
                 
                 // call the label text function, but trim to ensure that the values don't extend past the end of the arc
                 var labelTextTrimmed = trimTextToLength(self.options.arcLabelsTextFunc(d),fontsizePercent,d.arcLength);
+                var myLabelArc = arcLabels.select("#labelArc_"+d.data.slice_id);
                 textPath
-                    .attr("xlink:href", "#labelArc_" + d.data.id )
+                    .attr("xlink:href", "#labelArc_" + d.data.slice_id )
                     .text(labelTextTrimmed);
                 ;
             })
         ;
         
         arcLabels.exit().remove();
+    }
+    
+    function updateCenterLabelText(svg) {
+    
+        if( !self.options.showCenterLabel )
+            return;
+        
+        var g = svg.select(".pie-center-label")
+            .attr("transform", "translate(" + self.options.width / 2 + "," + self.options.height / 2 + ")");
+        
+        var labelText = trimTextToLength(self.options.centerLabelText,self.options.labelFontSizePercentageOfWidth,
+                                            self.options.innerRadius);
+        g.select(".center-label-text")
+            .text(labelText);
     }
    
     /* measure the length of a string in pixels:
@@ -446,6 +485,27 @@ d3.aster = function(options) {
         
         outlineArc.innerRadius(self.options.innerRadius)
                     .outerRadius(self.options.radiusFunc())
+    }
+    
+    function updateHeightScale(data) {
+        // get data range and update the height scale and arc generators appropriately
+        if( self.options.heightDomain === null )
+        {
+            var hmin = d3.min(data, function(d)
+            {
+                return +d.height_var;
+            });
+            var hmax = d3.max(data, function(d)
+            {
+                return +d.height_var;
+            });
+            heightScale.domain([hmin, hmax])
+        }
+        else
+            heightScale.domain(self.options.heightDomain);
+        
+        heightScale
+            .range([self.options.radiusFunc() * 0.2, self.options.radiusFunc() - self.options.innerRadius]);
     }
     
     function getDelayFunction() {
@@ -513,7 +573,7 @@ d3.aster = function(options) {
         function tweenNarrow(b)
         {
             // narrow slices slightly while transition is occurring
-            var i = d3.interpolate({innerRadius: 0, padAngle: (b.endAngle - b.startAngle) * 0.2 }, b);
+            var i = d3.interpolate({innerRadius: 0, padAngle: (b.endAngle - b.startAngle) * 0.25 }, b);
         
             return function(t)
             {
@@ -557,7 +617,7 @@ d3.aster = function(options) {
     my.height = function(d) {
         if( arguments.length === 0 )
             return self.options.height;
-        height = d;
+        self.options.height = d;
         return my;
     };
     
@@ -577,6 +637,16 @@ d3.aster = function(options) {
         if( arguments.length === 0 )
             return self.options.innerRadius;
         self.options.innerRadius = d;
+        return my;
+    };
+    
+    my.heightDomain = function(d) {
+        if( arguments.length === 0 )
+            return self.options.heightDomain;
+        if( d.constructor === Array && d.length === 2 )
+            self.options.heightDomain = d;
+        else
+            throw new TypeError("Argument 'heightDomain' must be an array of size 2");
         return my;
     };
     
@@ -605,6 +675,13 @@ d3.aster = function(options) {
         if( arguments.length === 0 )
             return self.options.showOuterArc;
         self.options.showOuterArc = d;
+        return my;
+    };
+    
+    my.showCenterLabel = function(d) {
+        if( arguments.length === 0 )
+            return self.options.showCenterLabel;
+        self.options.showCenterLabel = d;
         return my;
     };
     
@@ -643,6 +720,13 @@ d3.aster = function(options) {
         return my;
     };
     
+    my.labelFontSizePercentageOfWidth = function(d) {
+        if( arguments.length === 0 )
+            return self.options.labelFontSizePercentageOfWidth;
+        self.options.labelFontSizePercentageOfWidth = d;
+        return my;
+    };
+    
     // functions
     my.radiusFunc = function(d) {
         if( arguments.length === 0 )
@@ -650,6 +734,13 @@ d3.aster = function(options) {
         if( typeof d !== "function" )
             throw new Error("Argument 'radiusFunc' must be a function");
         self.options.radiusFunc = d;
+        return my;
+    };
+    
+    my.centerLabelText = function(d) {
+        if( arguments.length === 0 )
+            return self.options.centerLabelText;
+        self.options.centerLabelText = d;
         return my;
     };
     
@@ -688,12 +779,13 @@ d3.aster = function(options) {
         return my;
     };
     
-    my.tooltipHTMLFunc = function(d) {
+    my.toolTipHTMLFunc = function(d) {
+    
         if( arguments.length === 0 )
-            return self.options.tooltipHTMLFunc;
+            return self.options.toolTipHTMLFunc;
         if( typeof d !== "function" )
-            throw new Error("Argument 'tooltipHTMLFunc' must be a function");
-        self.options.tooltipHTMLFunc = d;
+            throw new Error("Argument 'toolTipHTMLFunc' must be a function");
+        self.options.toolTipHTMLFunc = d;
         tip.html(self.options.toolTipHTMLFunc);
         return my;
     };

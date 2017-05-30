@@ -21,6 +21,10 @@ body {
   padding: 10%;
 }
 
+.center-label-text {
+  font-size: large;
+}
+
 .cannabis-labels-text {
   padding: 1%;
   display: inline;
