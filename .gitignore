@@ -1,2 +1,4 @@
 .idea
 .DS_*
+node_modules
+build
